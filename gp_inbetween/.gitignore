@@ -1,0 +1,43 @@
+# Rust
+/target/
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.exe
+*.dll
+*.dylib
+
+# Blender
+*.blend1
+*.blend2
+
+# Logs
+*.log
+feedback.jsonl
+
+# Config with secrets
+gp_ai_config.toml
+
+# Test outputs
+/output/
+/tmp/

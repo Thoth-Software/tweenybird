@@ -1,0 +1,45 @@
+[package]
+name = "gp_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Core library for GP AI inbetweening"
+
+[lib]
+name = "gp_core"
+path = "src/lib.rs"
+
+[dependencies]
+# Image processing - disable rayon to avoid Rust version issues
+image = { version = "0.24", default-features = false, features = ["png", "jpeg", "gif"] }
+
+# HTTP client for API calls (pinned for Rust 1.75 compatibility, using native TLS)
+minreq = { version = "=2.11.0", features = ["json-using-serde", "https-native"] }
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+toml = "0.5"
+
+# Base64 encoding for API
+base64 = "0.21"
+
+# Error handling
+anyhow.workspace = true
+thiserror.workspace = true
+
+# Logging
+log.workspace = true
+
+# File paths
+dirs = "5.0"
+
+# Random sampling for confidence scoring
+rand = "0.8"
+
+[dev-dependencies]
+tempfile = "3.9"
+
+[lints]
+workspace = true
