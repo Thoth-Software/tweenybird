@@ -1,0 +1,14 @@
+auto_accept_threshold = 0.85
+
+[api]
+backend = 'replicate'
+endpoint = 'http://localhost:8000/generate'
+replicate_model = 'fofr/tooncrafter:0486ff07368e816ec3d5c69b9581e7a09b55817f567a0d74caad9395c9295c77'
+style_strength = 0.8
+timeout_secs = 180
+
+[preprocessing]
+cleanup_enabled = true
+target_resolution = 1024
+normalize_resolution = true
+min_stroke_length = 5.0
