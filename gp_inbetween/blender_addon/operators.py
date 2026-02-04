@@ -84,7 +84,7 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
     def poll(cls, context):
         # Check that we have a Grease Pencil object selected
         obj = context.active_object
-        if obj is None or obj.type != 'GPENCIL':
+        if obj is None or obj.type != 'GREASEPENCIL':
             return False
         return True
 
@@ -122,7 +122,7 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
 
         # Get the active GP object
         gp_obj = context.active_object
-        if gp_obj.type != 'GPENCIL':
+        if gp_obj.type != 'GREASEPENCIL':
             self.report({'ERROR'}, "Active object is not a Grease Pencil object")
             return {'CANCELLED'}
 

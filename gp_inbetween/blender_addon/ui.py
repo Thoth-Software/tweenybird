@@ -18,7 +18,7 @@ class GPAI_PT_MainPanel(bpy.types.Panel):
 
         # Check for GP object
         obj = context.active_object
-        if obj is None or obj.type != 'GPENCIL':
+        if obj is None or obj.type != 'GREASEPENCIL':
             layout.label(text="Select a Grease Pencil object", icon='INFO')
             return
 

@@ -41,7 +41,9 @@ def get_preferences():
 
 def write_config_file(config_path: Path, api_key: str, threshold: float):
     """Write a temporary config file with current settings."""
-    config = f"""[api]
+    config = f"""auto_accept_threshold = {threshold}
+
+[api]
 backend = "replicate"
 endpoint = "http://localhost:8000/generate"
 api_key = "{api_key}"
@@ -55,7 +57,6 @@ target_resolution = 1024
 normalize_resolution = true
 min_stroke_length = 5.0
 
-auto_accept_threshold = {threshold}
 """
     config_path.write_text(config)
 
@@ -84,7 +85,7 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
     def poll(cls, context):
         # Check that we have a Grease Pencil object selected
         obj = context.active_object
-        if obj is None or obj.type != 'GPENCIL':
+        if obj is None or obj.type != 'GREASEPENCIL':
             return False
         return True
 
@@ -122,7 +123,7 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
 
         # Get the active GP object
         gp_obj = context.active_object
-        if gp_obj.type != 'GPENCIL':
+        if gp_obj.type != 'GREASEPENCIL':
             self.report({'ERROR'}, "Active object is not a Grease Pencil object")
             return {'CANCELLED'}
 
@@ -327,7 +328,7 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
 
         if existing_frame:
             # Remove existing frame content
-            layer.frames.remove(existing_frame)
+            layer.frames.remove(existing_frame.frame_number)
 
         # Create new frame
         new_frame = layer.frames.new(frame_num)
@@ -353,6 +354,39 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
         # Set the GP object back as active
         context.view_layer.objects.active = gp_obj
 
+def import_png_to_gp_frame(self, context, gp_obj, png_path, frame_num):
+    """Import PNG as a new GP frame with reference image."""
+    gp_data = gp_obj.data
+    layer = gp_data.layers.active
+
+    if layer is None:
+        self.report({'WARNING'}, "No active GP layer")
+        return
+
+    # Create a new empty frame at this position
+    existing_frame = None
+    for frame in layer.frames:
+        if frame.frame_number == frame_num:
+            existing_frame = frame
+            break
+
+    if existing_frame:
+        layer.frames.remove(existing_frame.frame_number)
+
+    new_frame = layer.frames.new(frame_num)
+
+    # Copy to persistent location so temp cleanup doesn't kill it
+    persistent_dir = Path(bpy.path.abspath("//")) / "gpai_output"
+    persistent_dir.mkdir(exist_ok=True)
+    persistent_path = persistent_dir / f"frame_{frame_num:04d}.png"
+    import shutil
+    shutil.copy2(str(png_path), str(persistent_path))
+
+    # Load into Blender's image data
+    img = bpy.data.images.load(str(persistent_path))
+    img.name = f"gpai_frame_{frame_num}"
+
+    self.report({'INFO'}, f"Frame {frame_num} saved to {persistent_path}")
     def log_acceptance(self, binary, frame_num, confidence):
         """Log auto-acceptance of a frame."""
         try:
