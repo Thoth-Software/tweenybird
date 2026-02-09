@@ -1,6 +1,17 @@
-# GP AI Inbetween
+# Tweenybird
 
-AI-assisted inbetweening for Blender's Grease Pencil. Generate smooth animation frames between keyframes using ToonCrafter.
+Tweenybird is an AI-assisted animation tool for Blender. Its purpose is to automatically generate inbetween frames (the intermediate frames between two keyframes) for Grease
+  Pencil animations using the https://replicate.com/fofr/tooncrafter AI model via the Replicate API.
+
+  ## How it works
+
+  1. In Blender, you select two keyframes in a Grease Pencil animation
+  2. The Blender addon (Python) exports those frames as PNGs and invokes a Rust CLI binary
+  3. The Rust backend preprocesses the images (normalizes resolution, cleans up noise), sends them to the ToonCrafter model on Replicate, and receives generated intermediate
+  frames back
+  4. A confidence scorer evaluates the quality of each generated frame using multiple heuristics (image validity, motion complexity, color consistency, historical success rate)
+  5. Frames above a configurable confidence threshold (default 0.85) are auto-accepted; others require manual review
+  6. The generated frames are imported back into Blender's timeline
 
 ## Features
 
