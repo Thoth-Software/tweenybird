@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import json
 import platform
+import os
 from pathlib import Path
 from bpy.props import IntProperty, StringProperty, EnumProperty
 
@@ -63,9 +64,10 @@ min_stroke_length = 5.0
 
 class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
     """Generate AI inbetweens between selected keyframes"""
+
     bl_idname = "gpai.generate_inbetweens"
     bl_label = "Generate Inbetweens"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     num_frames: IntProperty(
         name="Number of Frames",
@@ -85,7 +87,7 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
     def poll(cls, context):
         # Check that we have a Grease Pencil object selected
         obj = context.active_object
-        if obj is None or obj.type != 'GREASEPENCIL':
+        if obj is None or obj.type != "GREASEPENCIL":
             return False
         return True
 
@@ -106,40 +108,42 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
 
         prefs = get_preferences()
         if not prefs.api_key:
-            layout.label(text="⚠ Set API key in addon preferences!", icon='ERROR')
+            layout.label(text="⚠ Set API key in addon preferences!", icon="ERROR")
 
     def execute(self, context):
         prefs = get_preferences()
 
         if not prefs.api_key:
-            self.report({'ERROR'}, "Replicate API key not set. Check addon preferences.")
-            return {'CANCELLED'}
+            self.report(
+                {"ERROR"}, "Replicate API key not set. Check addon preferences."
+            )
+            return {"CANCELLED"}
 
         try:
             binary = get_binary_path()
         except FileNotFoundError as e:
-            self.report({'ERROR'}, str(e))
-            return {'CANCELLED'}
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
 
         # Get the active GP object
         gp_obj = context.active_object
-        if gp_obj.type != 'GREASEPENCIL':
-            self.report({'ERROR'}, "Active object is not a Grease Pencil object")
-            return {'CANCELLED'}
+        if gp_obj.type != "GREASEPENCIL":
+            self.report({"ERROR"}, "Active object is not a Grease Pencil object")
+            return {"CANCELLED"}
 
         # Get selected keyframes
         keyframes = self.get_selected_keyframes(context, gp_obj)
         if len(keyframes) < 2:
-            self.report({'ERROR'}, "Select at least 2 keyframes in the timeline")
-            return {'CANCELLED'}
+            self.report({"ERROR"}, "Select at least 2 keyframes in the timeline")
+            return {"CANCELLED"}
 
         # Use first and last selected frames
         frame_a_num = min(keyframes)
         frame_b_num = max(keyframes)
 
         if frame_b_num - frame_a_num < 2:
-            self.report({'ERROR'}, "Keyframes must be at least 2 frames apart")
-            return {'CANCELLED'}
+            self.report({"ERROR"}, "Keyframes must be at least 2 frames apart")
+            return {"CANCELLED"}
 
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -152,7 +156,9 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
                 config_path = tmpdir / "config.toml"
 
                 # Write config
-                write_config_file(config_path, prefs.api_key, prefs.auto_accept_threshold)
+                write_config_file(
+                    config_path, prefs.api_key, prefs.auto_accept_threshold
+                )
 
                 # Export frames
                 self.export_gp_frame_to_png(context, gp_obj, frame_a_num, png_a)
@@ -162,11 +168,16 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
                 cmd = [
                     binary,
                     "generate",
-                    "--frame-a", str(png_a),
-                    "--frame-b", str(png_b),
-                    "--num-frames", str(self.num_frames),
-                    "--output-dir", str(output_dir),
-                    "--config", str(config_path),
+                    "--frame-a",
+                    str(png_a),
+                    "--frame-b",
+                    str(png_b),
+                    "--num-frames",
+                    str(self.num_frames),
+                    "--output-dir",
+                    str(output_dir),
+                    "--config",
+                    str(config_path),
                 ]
 
                 if self.character:
@@ -176,19 +187,20 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
                     cmd.insert(1, "--verbose")
 
                 # Run generation
-                self.report({'INFO'}, "Generating frames... (this may take a minute)")
+                self.report({"INFO"}, "Generating frames... (this may take a minute)")
+
+                # Get the system PATH including Homebrew
+                env = os.environ.copy()
+                env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + env.get("PATH", "")
 
                 result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=300,  # 5 minute timeout
+                    cmd, capture_output=True, text=True, timeout=300, env=env
                 )
 
                 if result.returncode != 0:
                     error_msg = result.stderr or result.stdout or "Unknown error"
-                    self.report({'ERROR'}, f"Generation failed: {error_msg}")
-                    return {'CANCELLED'}
+                    self.report({"ERROR"}, f"Generation failed: {error_msg}")
+                    return {"CANCELLED"}
 
                 # Read metadata
                 metadata_path = output_dir / "metadata.json"
@@ -202,8 +214,8 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
                 generated_pngs = sorted(output_dir.glob("*.png"))
 
                 if not generated_pngs:
-                    self.report({'ERROR'}, "No frames were generated")
-                    return {'CANCELLED'}
+                    self.report({"ERROR"}, "No frames were generated")
+                    return {"CANCELLED"}
 
                 # Calculate frame spacing
                 total_gap = frame_b_num - frame_a_num - 1
@@ -211,9 +223,15 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
                     frame_a_num, frame_b_num, len(generated_pngs)
                 )
 
-                for i, (png_path, frame_num) in enumerate(zip(generated_pngs, frame_positions)):
-                    confidence = metadata.get("confidence_scores", [0.0] * len(generated_pngs))[i]
-                    auto_accept = metadata.get("auto_accept", [False] * len(generated_pngs))[i]
+                for i, (png_path, frame_num) in enumerate(
+                    zip(generated_pngs, frame_positions)
+                ):
+                    confidence = metadata.get(
+                        "confidence_scores", [0.0] * len(generated_pngs)
+                    )[i]
+                    auto_accept = metadata.get(
+                        "auto_accept", [False] * len(generated_pngs)
+                    )[i]
 
                     self.import_png_to_gp_frame(context, gp_obj, png_path, frame_num)
 
@@ -221,21 +239,25 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
                         self.log_acceptance(binary, frame_num, confidence)
 
                 # Store info for later
-                context.scene.gpai.last_motion_type = metadata.get("motion_type", "unknown")
+                context.scene.gpai.last_motion_type = metadata.get(
+                    "motion_type", "unknown"
+                )
                 context.scene.gpai.character_name = self.character
 
                 self.report(
-                    {'INFO'},
-                    f"Generated {len(generated_pngs)} frames between {frame_a_num} and {frame_b_num}"
+                    {"INFO"},
+                    f"Generated {len(generated_pngs)} frames between {frame_a_num} and {frame_b_num}",
                 )
-                return {'FINISHED'}
+                return {"FINISHED"}
 
         except subprocess.TimeoutExpired:
-            self.report({'ERROR'}, "Generation timed out (5 minutes). Try with fewer frames.")
-            return {'CANCELLED'}
+            self.report(
+                {"ERROR"}, "Generation timed out (5 minutes). Try with fewer frames."
+            )
+            return {"CANCELLED"}
         except Exception as e:
-            self.report({'ERROR'}, f"Error: {str(e)}")
-            return {'CANCELLED'}
+            self.report({"ERROR"}, f"Error: {str(e)}")
+            return {"CANCELLED"}
 
     def get_selected_keyframes(self, context, gp_obj):
         """Get list of selected keyframe numbers from the active GP layer."""
@@ -297,8 +319,8 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
 
         try:
             scene.render.filepath = str(output_path)
-            scene.render.image_settings.file_format = 'PNG'
-            scene.render.image_settings.color_mode = 'RGBA'
+            scene.render.image_settings.file_format = "PNG"
+            scene.render.image_settings.color_mode = "RGBA"
 
             # Render using OpenGL (shows GP strokes)
             bpy.ops.render.opengl(write_still=True)
@@ -311,146 +333,174 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
             context.scene.frame_set(original_frame)
 
     def import_png_to_gp_frame(self, context, gp_obj, png_path, frame_num):
-        """Import PNG as a new GP frame."""
+        """Trace a raster PNG into Grease Pencil strokes on the given frame."""
+        import shutil
+
         gp_data = gp_obj.data
         layer = gp_data.layers.active
 
         if layer is None:
-            self.report({'WARNING'}, "No active GP layer")
+            self.report({"WARNING"}, "No active GP layer")
             return
 
-        # Check if frame already exists
-        existing_frame = None
+        # Remove existing frame at this position
         for frame in layer.frames:
             if frame.frame_number == frame_num:
-                existing_frame = frame
+                layer.frames.remove(frame.frame_number)
                 break
 
-        if existing_frame:
-            # Remove existing frame content
-            layer.frames.remove(existing_frame.frame_number)
+        # Persist the image beyond temp directory lifetime
+        if bpy.data.filepath:
+            persistent_dir = Path(bpy.path.abspath("//")) / "gpai_output"
+        else:
+            persistent_dir = Path.home() / "gpai_output"
+        persistent_dir.mkdir(exist_ok=True)
+        persistent_path = persistent_dir / f"frame_{frame_num:04d}.png"
+        shutil.copy2(str(png_path), str(persistent_path))
 
-        # Create new frame
-        new_frame = layer.frames.new(frame_num)
+        # Save editor state
+        original_frame = context.scene.frame_current
+        original_mode = context.mode
+        if original_mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        context.scene.frame_set(frame_num)
 
-        # For now, we import as an image reference
-        # A more sophisticated approach would trace the image to GP strokes
-        # This is a placeholder - real implementation would use:
-        # - bpy.ops.gpencil.trace_image() for auto-tracing
-        # - Or manual stroke creation from contours
+        # Create temporary image empty for trace_image to read from
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.object.empty_image_add(
+            filepath=str(persistent_path),
+            location=gp_obj.location,
+        )
+        trace_empty = context.active_object
 
-        # Load the image as a reference
-        img = bpy.data.images.load(str(png_path))
-        img.name = f"gpai_frame_{frame_num}"
+        # Trace the image into a new temporary GP object
+        traced_gp = None
+        try:
+            bpy.ops.gpencil.trace_image(
+                target="NEW",
+                thickness=3,
+                resolution=8,
+                scale=1.0,
+                threshold=0.5,
+                turnpolicy="MINORITY",
+                mode="SINGLE",
+            )
+            if context.active_object != trace_empty:
+                traced_gp = context.active_object
+        except Exception as e:
+            print(f"[GPAI] trace_image failed for frame {frame_num}: {e}")
 
-        # Create an empty with the image as reference
-        # (This is temporary - you'd want to trace to strokes)
-        bpy.ops.object.empty_add(type='IMAGE', location=gp_obj.location)
-        empty = context.active_object
-        empty.data = img
-        empty.name = f"GPAI_Ref_{frame_num}"
-        empty.empty_display_size = 1.0
+        if traced_gp is not None:
+            # Join the traced GP into our target GP object
+            bpy.ops.object.select_all(action="DESELECT")
+            traced_gp.select_set(True)
+            gp_obj.select_set(True)
+            context.view_layer.objects.active = gp_obj
+            try:
+                bpy.ops.object.join()
+            except Exception as e:
+                print(f"[GPAI] join failed for frame {frame_num}: {e}")
+                # Clean up the traced object if join failed
+                bpy.ops.object.select_all(action="DESELECT")
+                traced_gp.select_set(True)
+                bpy.ops.object.delete()
+                layer.frames.new(frame_num)
+        else:
+            # Tracing failed; create an empty frame so timeline isn't broken
+            layer.frames.new(frame_num)
+            print(f"[GPAI] Could not trace frame {frame_num}, created empty frame")
 
-        # Set the GP object back as active
+        # Remove temporary image empty
+        bpy.ops.object.select_all(action="DESELECT")
+        trace_empty.select_set(True)
+        bpy.ops.object.delete()
+
+        # Restore state
         context.view_layer.objects.active = gp_obj
+        gp_obj.select_set(True)
+        context.scene.frame_set(original_frame)
 
-def import_png_to_gp_frame(self, context, gp_obj, png_path, frame_num):
-    """Import PNG as a new GP frame with reference image."""
-    gp_data = gp_obj.data
-    layer = gp_data.layers.active
-
-    if layer is None:
-        self.report({'WARNING'}, "No active GP layer")
-        return
-
-    # Create a new empty frame at this position
-    existing_frame = None
-    for frame in layer.frames:
-        if frame.frame_number == frame_num:
-            existing_frame = frame
-            break
-
-    if existing_frame:
-        layer.frames.remove(existing_frame.frame_number)
-
-    new_frame = layer.frames.new(frame_num)
-
-    # Copy to persistent location so temp cleanup doesn't kill it
-    persistent_dir = Path(bpy.path.abspath("//")) / "gpai_output"
-    persistent_dir.mkdir(exist_ok=True)
-    persistent_path = persistent_dir / f"frame_{frame_num:04d}.png"
-    import shutil
-    shutil.copy2(str(png_path), str(persistent_path))
-
-    # Load into Blender's image data
-    img = bpy.data.images.load(str(persistent_path))
-    img.name = f"gpai_frame_{frame_num}"
-
-    self.report({'INFO'}, f"Frame {frame_num} saved to {persistent_path}")
     def log_acceptance(self, binary, frame_num, confidence):
         """Log auto-acceptance of a frame."""
         try:
-            subprocess.run([
-                binary,
-                "accept",
-                "--frame-number", str(frame_num),
-                "--character", self.character or "unknown",
-                "--motion-type", "unknown",
-                "--auto", "true",
-                "--confidence", str(confidence),
-            ], capture_output=True, timeout=5)
+            subprocess.run(
+                [
+                    binary,
+                    "accept",
+                    "--frame-number",
+                    str(frame_num),
+                    "--character",
+                    self.character or "unknown",
+                    "--motion-type",
+                    "unknown",
+                    "--auto",
+                    "true",
+                    "--confidence",
+                    str(confidence),
+                ],
+                capture_output=True,
+                timeout=5,
+            )
         except Exception:
             pass  # Don't fail the whole operation for logging errors
 
 
 class GPAI_OT_AcceptFrame(bpy.types.Operator):
     """Accept the AI-generated frame at current position"""
+
     bl_idname = "gpai.accept_frame"
     bl_label = "Accept Frame"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         try:
             binary = get_binary_path()
         except FileNotFoundError as e:
-            self.report({'ERROR'}, str(e))
-            return {'CANCELLED'}
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
 
         frame_num = context.scene.frame_current
         character = context.scene.gpai.character_name or "unknown"
         motion_type = context.scene.gpai.last_motion_type or "unknown"
 
-        subprocess.run([
-            binary,
-            "accept",
-            "--frame-number", str(frame_num),
-            "--character", character,
-            "--motion-type", motion_type,
-        ], capture_output=True)
+        subprocess.run(
+            [
+                binary,
+                "accept",
+                "--frame-number",
+                str(frame_num),
+                "--character",
+                character,
+                "--motion-type",
+                motion_type,
+            ],
+            capture_output=True,
+        )
 
-        self.report({'INFO'}, f"Accepted frame {frame_num}")
-        return {'FINISHED'}
+        self.report({"INFO"}, f"Accepted frame {frame_num}")
+        return {"FINISHED"}
 
 
 class GPAI_OT_RejectFrame(bpy.types.Operator):
     """Reject the AI-generated frame at current position"""
+
     bl_idname = "gpai.reject_frame"
     bl_label = "Reject Frame"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     issues: EnumProperty(
         name="Issues",
         description="What's wrong with this frame?",
         items=[
-            ('artifacts', "Artifacts", "Visual artifacts or glitches"),
-            ('wrong_motion', "Wrong Motion", "Motion doesn't match expected path"),
-            ('style_mismatch', "Style Mismatch", "Doesn't match art style"),
-            ('missing_parts', "Missing Parts", "Parts of character are missing"),
-            ('extra_parts', "Extra Parts", "Unwanted elements appeared"),
-            ('proportion', "Proportion Issues", "Character proportions are off"),
-            ('other', "Other", "Other issues"),
+            ("artifacts", "Artifacts", "Visual artifacts or glitches"),
+            ("wrong_motion", "Wrong Motion", "Motion doesn't match expected path"),
+            ("style_mismatch", "Style Mismatch", "Doesn't match art style"),
+            ("missing_parts", "Missing Parts", "Parts of character are missing"),
+            ("extra_parts", "Extra Parts", "Unwanted elements appeared"),
+            ("proportion", "Proportion Issues", "Character proportions are off"),
+            ("other", "Other", "Other issues"),
         ],
-        default='artifacts',
+        default="artifacts",
     )
 
     def invoke(self, context, event):
@@ -464,28 +514,36 @@ class GPAI_OT_RejectFrame(bpy.types.Operator):
         try:
             binary = get_binary_path()
         except FileNotFoundError as e:
-            self.report({'ERROR'}, str(e))
-            return {'CANCELLED'}
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
 
         frame_num = context.scene.frame_current
         character = context.scene.gpai.character_name or "unknown"
         motion_type = context.scene.gpai.last_motion_type or "unknown"
 
-        subprocess.run([
-            binary,
-            "reject",
-            "--frame-number", str(frame_num),
-            "--character", character,
-            "--motion-type", motion_type,
-            "--issues", self.issues,
-        ], capture_output=True)
+        subprocess.run(
+            [
+                binary,
+                "reject",
+                "--frame-number",
+                str(frame_num),
+                "--character",
+                character,
+                "--motion-type",
+                motion_type,
+                "--issues",
+                self.issues,
+            ],
+            capture_output=True,
+        )
 
-        self.report({'INFO'}, f"Rejected frame {frame_num}")
-        return {'FINISHED'}
+        self.report({"INFO"}, f"Rejected frame {frame_num}")
+        return {"FINISHED"}
 
 
 class GPAI_OT_ShowStats(bpy.types.Operator):
     """Show generation statistics"""
+
     bl_idname = "gpai.show_stats"
     bl_label = "Show Statistics"
 
@@ -493,8 +551,8 @@ class GPAI_OT_ShowStats(bpy.types.Operator):
         try:
             binary = get_binary_path()
         except FileNotFoundError as e:
-            self.report({'ERROR'}, str(e))
-            return {'CANCELLED'}
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
 
         result = subprocess.run(
             [binary, "stats"],
@@ -503,19 +561,22 @@ class GPAI_OT_ShowStats(bpy.types.Operator):
         )
 
         def draw_popup(self, context):
-            for line in result.stdout.split('\n'):
+            for line in result.stdout.split("\n"):
                 if line.strip():
                     self.layout.label(text=line)
 
-        context.window_manager.popup_menu(draw_popup, title="GP AI Statistics", icon='INFO')
-        return {'FINISHED'}
+        context.window_manager.popup_menu(
+            draw_popup, title="GP AI Statistics", icon="INFO"
+        )
+        return {"FINISHED"}
 
 
 class GPAI_OT_OpenConfig(bpy.types.Operator):
     """Open addon preferences"""
+
     bl_idname = "gpai.open_config"
     bl_label = "Open Settings"
 
     def execute(self, context):
         bpy.ops.preferences.addon_show(module=__package__)
-        return {'FINISHED'}
+        return {"FINISHED"}

@@ -310,7 +310,9 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
             context.scene.frame_set(original_frame)
 
     def import_png_to_gp_frame(self, context, gp_obj, png_path, frame_num):
-        """Import PNG as a new GP frame."""
+        """Trace a raster PNG into Grease Pencil strokes on the given frame."""
+        import shutil
+
         gp_data = gp_obj.data
         layer = gp_data.layers.active
 
@@ -318,40 +320,82 @@ class GPAI_OT_GenerateInbetweens(bpy.types.Operator):
             self.report({'WARNING'}, "No active GP layer")
             return
 
-        # Check if frame already exists
-        existing_frame = None
+        # Remove existing frame at this position
         for frame in layer.frames:
             if frame.frame_number == frame_num:
-                existing_frame = frame
+                layer.frames.remove(frame)
                 break
 
-        if existing_frame:
-            # Remove existing frame content
-            layer.frames.remove(existing_frame)
+        # Persist the image beyond temp directory lifetime
+        if bpy.data.filepath:
+            persistent_dir = Path(bpy.path.abspath("//")) / "gpai_output"
+        else:
+            persistent_dir = Path.home() / "gpai_output"
+        persistent_dir.mkdir(exist_ok=True)
+        persistent_path = persistent_dir / f"frame_{frame_num:04d}.png"
+        shutil.copy2(str(png_path), str(persistent_path))
 
-        # Create new frame
-        new_frame = layer.frames.new(frame_num)
+        # Save editor state
+        original_frame = context.scene.frame_current
+        original_mode = context.mode
+        if original_mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        context.scene.frame_set(frame_num)
 
-        # For now, we import as an image reference
-        # A more sophisticated approach would trace the image to GP strokes
-        # This is a placeholder - real implementation would use:
-        # - bpy.ops.gpencil.trace_image() for auto-tracing
-        # - Or manual stroke creation from contours
+        # Create temporary image empty for trace_image to read from
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.object.empty_image_add(
+            filepath=str(persistent_path),
+            location=gp_obj.location,
+        )
+        trace_empty = context.active_object
 
-        # Load the image as a reference
-        img = bpy.data.images.load(str(png_path))
-        img.name = f"gpai_frame_{frame_num}"
+        # Trace the image into a new temporary GP object
+        traced_gp = None
+        try:
+            bpy.ops.gpencil.trace_image(
+                target="NEW",
+                thickness=3,
+                resolution=8,
+                scale=1.0,
+                threshold=0.5,
+                turnpolicy="MINORITY",
+                mode="SINGLE",
+            )
+            if context.active_object != trace_empty:
+                traced_gp = context.active_object
+        except Exception as e:
+            print(f"[GPAI] trace_image failed for frame {frame_num}: {e}")
 
-        # Create an empty with the image as reference
-        # (This is temporary - you'd want to trace to strokes)
-        bpy.ops.object.empty_add(type='IMAGE', location=gp_obj.location)
-        empty = context.active_object
-        empty.data = img
-        empty.name = f"GPAI_Ref_{frame_num}"
-        empty.empty_display_size = 1.0
+        if traced_gp is not None:
+            # Join the traced GP into our target GP object
+            bpy.ops.object.select_all(action="DESELECT")
+            traced_gp.select_set(True)
+            gp_obj.select_set(True)
+            context.view_layer.objects.active = gp_obj
+            try:
+                bpy.ops.object.join()
+            except Exception as e:
+                print(f"[GPAI] join failed for frame {frame_num}: {e}")
+                # Clean up the traced object if join failed
+                bpy.ops.object.select_all(action="DESELECT")
+                traced_gp.select_set(True)
+                bpy.ops.object.delete()
+                layer.frames.new(frame_num)
+        else:
+            # Tracing failed; create an empty frame so timeline isn't broken
+            layer.frames.new(frame_num)
+            print(f"[GPAI] Could not trace frame {frame_num}, created empty frame")
 
-        # Set the GP object back as active
+        # Remove temporary image empty
+        bpy.ops.object.select_all(action="DESELECT")
+        trace_empty.select_set(True)
+        bpy.ops.object.delete()
+
+        # Restore state
         context.view_layer.objects.active = gp_obj
+        gp_obj.select_set(True)
+        context.scene.frame_set(original_frame)
 
     def log_acceptance(self, binary, frame_num, confidence):
         """Log auto-acceptance of a frame."""
